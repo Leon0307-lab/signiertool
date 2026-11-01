@@ -339,9 +339,29 @@ async function detailView(id){
 }
 
 /* ================= SIGNIERTES PDF + AUDIT ================= */
+/* Verschlüsselte PDFs (Berechtigungsschutz): Seiten als Bilder neu aufbauen */
+async function flattenPdf(bytes){
+  const src=await pdfjsLib.getDocument({data:bytes.slice()}).promise;
+  const out=await PDFLib.PDFDocument.create();
+  for(let i=1;i<=src.numPages;i++){
+    const page=await src.getPage(i);
+    const v1=page.getViewport({scale:1}),v2=page.getViewport({scale:2.2});
+    const cv=document.createElement('canvas');cv.width=v2.width;cv.height=v2.height;
+    const ctx=cv.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);
+    await page.render({canvasContext:ctx,viewport:v2}).promise;
+    const img=await out.embedJpg(cv.toDataURL('image/jpeg',.92));
+    const p=out.addPage([v1.width,v1.height]);p.drawImage(img,{x:0,y:0,width:v1.width,height:v1.height});
+  }
+  return await out.save();
+}
 async function buildSignedPdf(d,signers,events){
   const {PDFDocument,StandardFonts,rgb}=PDFLib;
-  const pdf=await PDFDocument.load(b64ToBytes(d.pdf_b64));
+  let pdf,flat=false;
+  try{pdf=await PDFDocument.load(b64ToBytes(d.pdf_b64))}
+  catch(e){
+    if(!/encrypt/i.test(String(e&&e.message)))throw e;
+    pdf=await PDFDocument.load(await flattenPdf(b64ToBytes(d.pdf_b64)));flat=true;
+  }
   const font=await pdf.embedFont(StandardFonts.Helvetica),bold=await pdf.embedFont(StandardFonts.HelveticaBold);
   const cl=s=>String(s??'').replace(/[\u2013\u2014]/g,'-').replace(/[\u2018\u2019]/g,"'").replace(/[\u201C\u201D]/g,'"').replace(/[^\x20-\x7E\xA0-\xFF]/g,'?');
   const pages=pdf.getPages();const sigImgs={};
@@ -414,6 +434,7 @@ async function buildSignedPdf(d,signers,events){
 
   section('1','Dokument und Integrität');
   kv([['Titel',d.title],['Dokument-ID',d.code],['Seiten (Original)',String(d.page_count||pages.length)],
+      ...(flat?[['Hinweis zum Original','Das hochgeladene PDF war durch einen Berechtigungsschutz verschlüsselt. Für die Unterschriften wurden die Seiten als Bilddarstellung übernommen (Text nicht mehr markierbar). Der Hashwert bezieht sich auf die hochgeladene Originaldatei.']]:[]),
       ['SHA-256 des Originals',d.sha256,mono],['Erstellt am',fmt(d.created_at)+' (Europe/Berlin)'],['Abgeschlossen am',d.completed_at?fmt(d.completed_at)+' (Europe/Berlin)':'noch nicht abgeschlossen']]);
 
   section('2','Unterzeichner und Signaturvorgang');
