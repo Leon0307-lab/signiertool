@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signiertool</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<style>
+:root{--bg:#f4f6f9;--card:#fff;--ink:#14213d;--mut:#667085;--pri:#1d4ed8;--ok:#15803d;--warn:#b45309;--bad:#b91c1c;--line:#e4e7ec}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+h1,h2,h3{margin:.2em 0 .5em}
+button,input,select{font:inherit}
+button{cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:8px;padding:8px 12px}
+button.pri{background:var(--pri);border-color:var(--pri);color:#fff}
+button.bad{color:var(--bad);border-color:#f3c5c5}
+button:disabled{opacity:.5;cursor:not-allowed}
+input,select{border:1px solid #cfd4dc;border-radius:8px;padding:8px 10px;background:#fff;width:100%}
+input[type=checkbox]{width:auto}
+label{display:block;font-size:13px;color:var(--mut);margin:8px 0 3px}
+.hdr{background:#fff;border-bottom:1px solid var(--line);padding:10px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:20}
+.hdr b{font-size:17px;margin-right:auto}
+.wrap{max-width:980px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.row>*{flex:1 1 140px}
+.row>button{flex:0 0 auto}
+.badge{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;background:#eef2f6;color:var(--mut)}
+.badge.signed{background:#dcfce7;color:var(--ok)}.badge.partial,.badge.sent{background:#fef3c7;color:var(--warn)}
+.mut{color:var(--mut);font-size:13px}
+.err{color:var(--bad);margin:8px 0}
+.doc{cursor:pointer}.doc:hover{border-color:var(--pri)}
+.steps{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.steps span{padding:4px 10px;border-radius:99px;background:#e9edf3;font-size:13px}
+.steps span.on{background:var(--pri);color:#fff}
+.pg{position:relative;margin:0 auto 14px;box-shadow:0 1px 6px rgba(0,0,0,.2);background:#fff;max-width:900px}
+.pg canvas{display:block;width:100%;height:auto}
+.ov{position:absolute;inset:0}
+.fld{position:absolute;border:2px solid var(--c);background:color-mix(in srgb,var(--c) 14%,transparent);border-radius:4px;font-size:11px;overflow:hidden;touch-action:none;cursor:move;color:#111;display:flex;align-items:center;padding:0 3px;white-space:nowrap}
+.fld.sel{outline:3px solid #000}
+.fld .rs{position:absolute;right:0;bottom:0;width:14px;height:14px;background:var(--c);cursor:nwse-resize}
+.tools{position:sticky;top:52px;z-index:15}
+.tools button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
+.sigbox{position:absolute;border:2px dashed var(--pri);background:rgba(29,78,216,.07);display:flex;align-items:center;justify-content:center;color:var(--pri);font-size:12px;cursor:pointer;border-radius:4px}
+.sigbox img{max-width:100%;max-height:100%}
+.ovin{position:absolute;border:1.5px solid var(--pri);background:rgba(255,250,200,.75);border-radius:3px;padding:0 3px;width:auto}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px}
+.modal .box{background:#fff;border-radius:12px;padding:16px;width:100%;max-width:640px}
+canvas.pad{width:100%;height:auto;border:1px dashed #98a2b3;border-radius:8px;touch-action:none;background:#fff}
+.bar{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--line);padding:10px 16px;z-index:20}
+.link{font-family:monospace;font-size:12px}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:9px 16px;border-radius:99px;z-index:99}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:5px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+@media print{.hdr,.noprint{display:none}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* ===== KONFIG: hier deine Supabase-Werte eintragen ===== */
+const CFG = {
+  SUPABASE_URL: 'https://aszmvlbrmlrkbkhvpxxt.supabase.co',          // z. B. https://abcd1234.supabase.co
+  SUPABASE_ANON_KEY: 'sb_publishable_kaIVlP0rUTlNgkUE0Q_CjQ_KkxIg7hz'    // Project Settings → API → anon public
+};
+/* ======================================================= */
+
+const $=(s,r=document)=>r.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const app=$('#app');
+const fmt=d=>d?new Date(d).toLocaleString('de-DE',{timeZone:'Europe/Berlin'}):'–';
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const uid=()=>crypto.randomUUID();
+const COLORS=['#2563eb','#db2777','#16a34a','#ea580c','#7c3aed','#0891b2'];
+const ROLE={signer:'Unterzeichner (per Link)',onsite:'Unterzeichner (vor Ort)',copy:'Erhält Kopie'};
+const STATUS={draft:'Entwurf',sent:'Zur Unterschrift',partial:'Teilweise signiert',signed:'Signiert'};
+const EVT={created:'Dokument erstellt',links_created:'Signierlinks erstellt',opened:'Link geöffnet',signed:'Unterzeichnet',completed:'Alle Unterschriften vorliegend'};
+const empMail=n=>n.trim().toLowerCase()+'@example.com';
+const b64ToBytes=b=>Uint8Array.from(atob(b),c=>c.charCodeAt(0));
+function bytesToB64(u){let s='';for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)}
+async function sha256(buf){const h=await crypto.subtle.digest('SHA-256',buf);return [...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,'0')).join('')}
+function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2200)}
+function genCode(){const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let r='';crypto.getRandomValues(new Uint8Array(6)).forEach(b=>r+=a[b%a.length]);const d=new Date();return 'DOC-'+d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')+'-'+r}
+const linkFor=t=>location.origin+location.pathname+'?sign='+t;
+
+let sb;
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+/* ---------- PDF-Rendering ---------- */
+async function renderPdf(container,bytes){
+  const pdf=await pdfjsLib.getDocument({data:bytes.slice()}).promise;
+  const pages=[];
+  for(let i=1;i<=pdf.numPages;i++){
+    const page=await pdf.getPage(i);
+    const vp0=page.getViewport({scale:1});
+    const vp=page.getViewport({scale:1100/vp0.width});
+    const wrap=document.createElement('div');wrap.className='pg';wrap.dataset.page=i;
+    const cv=document.createElement('canvas');cv.width=vp.width;cv.height=vp.height;
+    wrap.appendChild(cv);
+    const ov=document.createElement('div');ov.className='ov';wrap.appendChild(ov);
+    container.appendChild(wrap);
+    await page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+    pages.push({wrap,ov,aspect:vp.width/vp.height});
+  }
+  return pages;
+}
+
+/* ---------- Boot ---------- */
+(async function(){
+  if(!/^https?:/.test(CFG.SUPABASE_URL)){
+    app.innerHTML='<div class="wrap"><div class="card"><h2>Konfiguration fehlt</h2><p>Trage oben in <code>index.html</code> bei <code>CFG</code> deine Supabase-URL und den anon-Key ein (siehe README).</p></div></div>';return;
+  }
+  sb=supabase.createClient(CFG.SUPABASE_URL,CFG.SUPABASE_ANON_KEY);
+  const tok=new URLSearchParams(location.search).get('sign');
+  if(tok) return signerView(tok);
+  const {data:{session}}=await sb.auth.getSession();
+  session?shell(session):loginView();
+})();
+
+/* ================= LOGIN ================= */
+function loginView(){
+  app.innerHTML=`<div class="wrap" style="max-width:420px;padding-top:12vh"><div class="card">
+  <h2>Signiertool</h2><p class="mut">Anmeldung mit Mitarbeiternummer</p>
+  <form id="f"><label>Mitarbeiternummer</label><input id="emp" placeholder="EMP-DE-0000" autocomplete="username" required>
+  <label>Passwort</label><input id="pw" type="password" autocomplete="current-password" required>
+  <div class="err" id="e"></div><button class="pri" style="width:100%;margin-top:8px">Anmelden</button></form></div></div>`;
+  $('#f').onsubmit=async e=>{e.preventDefault();
+    const {data,error}=await sb.auth.signInWithPassword({email:empMail($('#emp').value),password:$('#pw').value});
+    if(error){$('#e').textContent='Mitarbeiternummer oder Passwort falsch.';return}
+    shell(data.session);
+  };
+}
+
+/* ================= ADMIN-SHELL ================= */
+let ME='';
+function shell(session){
+  ME=(session.user.email||'').split('@')[0].toUpperCase();
+  app.innerHTML=`<div class="hdr"><b>Signiertool</b>
+   <button id="nL">Dokumente</button><button id="nN" class="pri">+ Neu</button><button id="nS">Scannen</button>
+   <span class="mut">${esc(ME)}</span><button id="nO">Abmelden</button></div><div class="wrap" id="main"></div>`;
+  $('#nL').onclick=listView;$('#nN').onclick=wizStart;$('#nS').onclick=scanView;
+  $('#nO').onclick=async()=>{await sb.auth.signOut();loginView()};
+  listView();
+}
+const main=()=>$('#main');
+
+/* ----- Liste ----- */
+async function listView(){
+  main().innerHTML='<p class="mut">Lade…</p>';
+  const {data,error}=await sb.from('documents').select('id,code,title,status,created_at,signers(first_name,last_name,role,status)').order('created_at',{ascending:false});
+  if(error){main().innerHTML='<p class="err">'+esc(error.message)+'</p>';return}
+  main().innerHTML=`<div class="card"><input id="q" placeholder="Suchen: Barcode-Code, Titel, Name – oder Barcode-Scanner nutzen (Enter)" autofocus></div><div id="l"></div>`;
+  const draw=()=>{const q=$('#q').value.toLowerCase();
+    const rows=data.filter(d=>!q||(d.code+' '+d.title+' '+d.signers.map(s=>s.first_name+' '+s.last_name).join(' ')).toLowerCase().includes(q));
+    $('#l').innerHTML=rows.length?rows.map(d=>{const n=d.signers.filter(s=>s.role!=='copy'),k=n.filter(s=>s.status==='signed').length;
+      return `<div class="card doc" data-id="${d.id}"><div class="row"><div><b>${esc(d.title)}</b><div class="mut">${esc(d.code)} · ${fmt(d.created_at)}</div></div>
+      <div style="text-align:right"><span class="badge ${d.status}">${STATUS[d.status]}</span><div class="mut">${k}/${n.length} signiert</div></div></div></div>`}).join(''):'<p class="mut">Keine Dokumente.</p>';
+    document.querySelectorAll('.doc').forEach(c=>c.onclick=()=>detailView(c.dataset.id));
+  };
+  $('#q').oninput=draw;
+  $('#q').onkeydown=e=>{if(e.key==='Enter'){const m=data.find(d=>d.code.toLowerCase()===$('#q').value.trim().toLowerCase());if(m)detailView(m.id)}};
+  draw();
+}
+
+/* ----- Scannen ----- */
+function scanView(){
+  main().innerHTML=`<div class="card"><h3>Barcode scannen</h3><div id="rd" style="max-width:420px"></div><div class="err" id="e"></div>
+  <p class="mut">Alternativ: In „Dokumente“ den Code eintippen oder mit USB-Scanner einlesen.</p></div>`;
+  const sc=new Html5Qrcode('rd');
+  sc.start({facingMode:'environment'},{fps:10,qrbox:{width:280,height:120}},async txt=>{
+    await sc.stop().catch(()=>{});
+    const {data}=await sb.from('documents').select('id').eq('code',txt.trim()).maybeSingle();
+    if(data)detailView(data.id);else{toast('Unbekannter Code: '+txt);scanView()}
+  }).catch(e=>{$('#e').textContent='Kamera nicht verfügbar: '+e})
+}
+
+/* ================= WIZARD ================= */
+let W=null;
+function wizStart(){W={step:1,title:'',bytes:null,sha:'',pages:0,signers:[],fields:[],tool:null,sel:null,signer:null};wizUpload()}
+const stepsBar=n=>`<div class="steps">${['Dokument','Unterzeichner','Felder','Prüfen'].map((t,i)=>`<span class="${i+1===n?'on':''}">${i+1}. ${t}</span>`).join('')}</div>`;
+
+function wizUpload(){
+  main().innerHTML=stepsBar(1)+`<div class="card"><h3>Dokument hochladen</h3>
+  <label>PDF-Datei (max. 8 MB)</label><input type="file" id="fi" accept="application/pdf">
+  <label>Titel</label><input id="ti" value="${esc(W.title)}" placeholder="z. B. Vollmacht Max Mustermann">
+  <div class="err" id="e"></div>${W.bytes?`<p class="mut">✔ ${W.pages} Seite(n) geladen</p>`:''}
+  <button class="pri" id="nx" style="margin-top:10px">Weiter</button></div>`;
+  $('#fi').onchange=async e=>{const f=e.target.files[0];if(!f)return;
+    if(f.size>8*1024*1024){$('#e').textContent='Datei größer als 8 MB.';return}
+    const buf=await f.arrayBuffer();
+    try{const p=await pdfjsLib.getDocument({data:buf.slice(0)}).promise;W.pages=p.numPages}catch{$('#e').textContent='Keine gültige PDF.';return}
+    W.bytes=new Uint8Array(buf);W.sha=await sha256(buf);
+    if(!$('#ti').value)$('#ti').value=f.name.replace(/\.pdf$/i,'');
+    $('#e').textContent='';toast('PDF geladen: '+W.pages+' Seite(n)');
+  };
+  $('#nx').onclick=()=>{if(!W.bytes){$('#e').textContent='Bitte PDF wählen.';return}
+    W.title=$('#ti').value.trim();if(!W.title){$('#e').textContent='Bitte Titel eingeben.';return}
+    if(!W.signers.length)W.signers.push(newSigner());wizSigners()};
+}
+const newSigner=()=>({id:uid(),role:'signer',first_name:'',last_name:'',email:'',phone:''});
+
+function wizSigners(){
+  main().innerHTML=stepsBar(2)+`<div class="card"><h3>Wer muss unterschreiben?</h3><div id="sl"></div>
+  <button id="add">+ Person hinzufügen</button><div class="err" id="e"></div>
+  <div class="row" style="margin-top:12px"><button id="bk">Zurück</button><button class="pri" id="nx">Weiter</button></div></div>`;
+  const draw=()=>{$('#sl').innerHTML=W.signers.map((s,i)=>`<div class="card" style="border-left:5px solid ${COLORS[i%6]}" data-i="${i}">
+   <div class="row"><div><label>Vorname</label><input data-k="first_name" value="${esc(s.first_name)}"></div>
+   <div><label>Nachname</label><input data-k="last_name" value="${esc(s.last_name)}"></div></div>
+   <div class="row"><div><label>E-Mail</label><input data-k="email" type="email" value="${esc(s.email)}"></div>
+   <div><label>Telefon</label><input data-k="phone" type="tel" value="${esc(s.phone)}"></div></div>
+   <div class="row"><div><label>Rolle</label><select data-k="role">${Object.entries(ROLE).map(([k,v])=>`<option value="${k}" ${s.role===k?'selected':''}>${v}</option>`).join('')}</select></div>
+   <button class="bad" data-del="${i}" style="align-self:flex-end">Entfernen</button></div></div>`).join('');
+   document.querySelectorAll('#sl [data-k]').forEach(el=>el.oninput=()=>{W.signers[el.closest('[data-i]').dataset.i][el.dataset.k]=el.value});
+   document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{W.signers.splice(b.dataset.del,1);draw()});
+  };
+  draw();
+  $('#add').onclick=()=>{W.signers.push(newSigner());draw()};
+  $('#bk').onclick=wizUpload;
+  $('#nx').onclick=()=>{
+    for(const s of W.signers){if(!s.first_name.trim()||!s.last_name.trim()){$('#e').textContent='Vor- und Nachname sind Pflicht.';return}}
+    if(!W.signers.some(s=>s.role!=='copy')){$('#e').textContent='Mindestens ein Unterzeichner nötig.';return}
+    W.fields=W.fields.filter(f=>W.signers.some(s=>s.id===f.signerId));
+    W.signer=W.signers.find(s=>s.role!=='copy').id;wizFields()};
+}
+
+async function wizFields(){
+  const sg=W.signers.filter(s=>s.role!=='copy');
+  main().innerHTML=stepsBar(3)+`<div class="card tools"><div class="row"><div><label style="margin:0">Feld gehört zu</label><select id="sg">${sg.map(s=>`<option value="${s.id}" ${W.signer===s.id?'selected':''}>${esc(s.first_name+' '+s.last_name)}</option>`).join('')}</select></div></div>
+  <div class="row" style="margin-top:8px" id="tb">${[['signature','✍ Unterschrift'],['text','T Textfeld'],['date','📅 Datum'],['checkbox','☑ Haken']].map(([k,l])=>`<button data-t="${k}" class="${W.tool===k?'on':''}">${l}</button>`).join('')}</div>
+  <p class="mut" style="margin:6px 0 0">Feldtyp wählen, dann ins Dokument tippen. Felder lassen sich ziehen und (rechts unten) skalieren.</p>
+  <div id="pn"></div></div><div id="pv"><p class="mut">Lade Vorschau…</p></div>
+  <div class="row" style="margin-top:12px"><button id="bk">Zurück</button><button class="pri" id="nx">Weiter</button></div>`;
+  $('#sg').onchange=e=>{W.signer=e.target.value};
+  document.querySelectorAll('#tb [data-t]').forEach(b=>b.onclick=()=>{W.tool=W.tool===b.dataset.t?null:b.dataset.t;document.querySelectorAll('#tb [data-t]').forEach(x=>x.classList.toggle('on',x.dataset.t===W.tool))});
+  $('#bk').onclick=wizSigners;
+  $('#nx').onclick=wizReview;
+  $('#pv').innerHTML='';
+  const pages=await renderPdf($('#pv'),W.bytes);
+  const draw=()=>{
+    pages.forEach((p,pi)=>{p.ov.innerHTML='';
+      W.fields.filter(f=>f.page===pi+1).forEach(f=>{
+        const si=W.signers.findIndex(s=>s.id===f.signerId),s=W.signers[si];
+        const el=document.createElement('div');el.className='fld'+(W.sel===f.id?' sel':'');
+        el.style.cssText=`--c:${COLORS[si%6]};left:${f.x*100}%;top:${f.y*100}%;width:${f.w*100}%;height:${f.h*100}%`;
+        el.textContent=({signature:'✍ ',text:'T ',date:'📅 ',checkbox:'☑ '}[f.type])+(f.label||'')+(s?' · '+s.first_name:'');
+        const rs=document.createElement('div');rs.className='rs';el.appendChild(rs);
+        el.onpointerdown=e=>{e.stopPropagation();const r=p.ov.getBoundingClientRect();const sx=e.clientX,sy=e.clientY,ox=f.x,oy=f.y,ow=f.w,oh=f.h;
+          const resize=e.target===rs;el.setPointerCapture(e.pointerId);const wasSel=W.sel===f.id;
+          el.onpointermove=ev=>{const dx=(ev.clientX-sx)/r.width,dy=(ev.clientY-sy)/r.height;
+            if(resize){f.w=clamp(ow+dx,.02,1-f.x);f.h=clamp(oh+dy,.015,1-f.y);el.style.width=f.w*100+'%';el.style.height=f.h*100+'%'}
+            else{f.x=clamp(ox+dx,0,1-f.w);f.y=clamp(oy+dy,0,1-f.h);el.style.left=f.x*100+'%';el.style.top=f.y*100+'%'}};
+          el.onpointerup=()=>{el.onpointermove=null;el.onpointerup=null;if(!wasSel){W.sel=f.id;draw();panel()}};
+        };
+        p.ov.appendChild(el)});
+    });
+  };
+  const panel=()=>{const f=W.fields.find(x=>x.id===W.sel);
+    if(!f){$('#pn').innerHTML='';return}
+    $('#pn').innerHTML=`<div class="row" style="margin-top:8px"><div><label>Beschriftung</label><input id="pl" value="${esc(f.label)}"></div>
+    ${f.type==='text'?`<div><label>Vorausgefüllt (optional, nicht änderbar)</label><input id="pv2" value="${esc(f.value||'')}"></div>`:''}
+    <div><label>Zuständig</label><select id="ps">${sg.map(s=>`<option value="${s.id}" ${f.signerId===s.id?'selected':''}>${esc(s.first_name+' '+s.last_name)}</option>`).join('')}</select></div>
+    <label style="flex:0 0 auto"><input type="checkbox" id="pr" ${f.required?'checked':''}> Pflicht</label><button class="bad" id="pd">Löschen</button></div>`;
+    $('#pl').oninput=e=>{f.label=e.target.value;draw()};
+    if($('#pv2'))$('#pv2').oninput=e=>{f.value=e.target.value};
+    $('#ps').onchange=e=>{f.signerId=e.target.value;draw()};
+    $('#pr').onchange=e=>{f.required=e.target.checked};
+    $('#pd').onclick=()=>{W.fields=W.fields.filter(x=>x.id!==f.id);W.sel=null;draw();panel()};
+  };
+  pages.forEach((p,pi)=>p.ov.onclick=e=>{
+    if(e.target!==p.ov)return;
+    if(!W.tool){W.sel=null;draw();panel();return}
+    const r=p.ov.getBoundingClientRect(),t=W.tool;
+    const sz={signature:[.28,.07],text:[.3,.035],date:[.16,.035],checkbox:[.03,.03*p.aspect]}[t];
+    const f={id:uid(),type:t,label:{signature:'Unterschrift',text:'',date:'Datum',checkbox:''}[t],page:pi+1,signerId:W.signer,required:t!=='date',value:'',
+      w:sz[0],h:sz[1],x:0,y:0};
+    f.x=clamp((e.clientX-r.left)/r.width-f.w/2,0,1-f.w);f.y=clamp((e.clientY-r.top)/r.height-f.h/2,0,1-f.h);
+    W.fields.push(f);W.sel=f.id;W.tool=null;document.querySelectorAll('#tb [data-t]').forEach(x=>x.classList.remove('on'));draw();panel();
+  });
+  draw();
+}
+
+function wizReview(){
+  const sg=W.signers.filter(s=>s.role!=='copy');
+  const miss=sg.filter(s=>!W.fields.some(f=>f.signerId===s.id&&f.type==='signature'));
+  main().innerHTML=stepsBar(4)+`<div class="card"><h3>${esc(W.title)}</h3><p class="mut">${W.pages} Seite(n) · SHA-256: <span class="link">${W.sha.slice(0,24)}…</span></p>
+  <table><tr><th>Person</th><th>Rolle</th><th>Felder</th></tr>${W.signers.map(s=>`<tr><td>${esc(s.first_name+' '+s.last_name)}<div class="mut">${esc(s.email)} ${esc(s.phone)}</div></td><td>${ROLE[s.role]}</td><td>${W.fields.filter(f=>f.signerId===s.id).length}</td></tr>`).join('')}</table>
+  ${miss.length?`<div class="err">Kein Unterschriftsfeld für: ${miss.map(s=>esc(s.first_name+' '+s.last_name)).join(', ')}</div>`:''}
+  <div class="err" id="e"></div><div class="row" style="margin-top:12px"><button id="bk">Zurück</button><button class="pri" id="go" ${miss.length?'disabled':''}>Speichern & Links erstellen</button></div></div>`;
+  $('#bk').onclick=wizFields;
+  $('#go').onclick=async()=>{const b=$('#go');b.disabled=true;b.textContent='Speichere…';
+    const code=genCode();
+    const {data:doc,error}=await sb.from('documents').insert({code,title:W.title,pdf_b64:bytesToB64(W.bytes),sha256:W.sha,page_count:W.pages,fields:W.fields,status:'sent'}).select('id').single();
+    if(error){$('#e').textContent=error.message;b.disabled=false;b.textContent='Speichern & Links erstellen';return}
+    const e2=(await sb.from('signers').insert(W.signers.map(s=>({id:s.id,document_id:doc.id,role:s.role,first_name:s.first_name.trim(),last_name:s.last_name.trim(),email:s.email.trim()||null,phone:s.phone.trim()||null})))).error;
+    if(e2){await sb.from('documents').delete().eq('id',doc.id);$('#e').textContent=e2.message;b.disabled=false;b.textContent='Speichern & Links erstellen';return}
+    await sb.from('audit_events').insert([{document_id:doc.id,event:'created',actor:ME,user_agent:navigator.userAgent.slice(0,400)},{document_id:doc.id,event:'links_created',actor:ME}]);
+    W=null;detailView(doc.id);
+  };
+}
+
+/* ================= DETAIL ================= */
+async function detailView(id){
+  main().innerHTML='<p class="mut">Lade…</p>';
+  const [d,s,e]=await Promise.all([
+    sb.from('documents').select('id,code,title,status,sha256,page_count,created_at,completed_at').eq('id',id).single(),
+    sb.from('signers').select('*').eq('document_id',id).order('last_name'),
+    sb.from('audit_events').select('*').eq('document_id',id).order('created_at')]);
+  if(d.error){main().innerHTML='<p class="err">'+esc(d.error.message)+'</p>';return}
+  const doc=d.data,signers=s.data||[],events=e.data||[];
+  const name=x=>x?esc(x.first_name+' '+x.last_name):'';
+  const anySigned=signers.some(x=>x.status==='signed');
+  main().innerHTML=`<div class="card"><div class="row"><div><h2>${esc(doc.title)}</h2><span class="badge ${doc.status}">${STATUS[doc.status]}</span>
+   <div class="mut">Erstellt ${fmt(doc.created_at)}${doc.completed_at?' · Abgeschlossen '+fmt(doc.completed_at):''}</div>
+   <div class="mut link">SHA-256 (Original): ${doc.sha256}</div></div>
+   <div style="text-align:center;flex:0 0 auto"><svg id="bc"></svg><div><button class="noprint" id="pr">Etikett drucken</button></div></div></div></div>
+  <div class="card"><h3>Unterzeichner</h3>${signers.map(x=>{const l=linkFor(x.token);
+   return `<div class="card" style="margin:8px 0"><div class="row"><div><b>${name(x)}</b> <span class="badge ${x.status==='signed'?'signed':''}">${x.status==='signed'?'signiert':'offen'}</span>
+   <div class="mut">${ROLE[x.role]} · ${esc(x.email||'')} ${esc(x.phone||'')}</div>${x.signed_at?`<div class="mut">Signiert ${fmt(x.signed_at)} · IP ${esc(x.signed_ip||'?')}</div>`:''}</div></div>
+   ${x.role==='copy'?`<div class="mut">Kopie-Empfänger: signiertes PDF unten herunterladen und manuell weitergeben.${x.email?` <a href="mailto:${esc(x.email)}?subject=${encodeURIComponent('Kopie: '+doc.title)}">E-Mail öffnen</a>`:''}</div>`
+   :x.status==='signed'?'':`<div class="link" style="word-break:break-all;margin:6px 0">${esc(l)}</div><div class="row"><button data-copy="${esc(l)}">Link kopieren</button>
+    <button data-open="${esc(l)}">Vor Ort signieren</button>
+    <a href="https://wa.me/?text=${encodeURIComponent('Bitte unterschreiben: '+doc.title+' '+l)}" target="_blank"><button>WhatsApp</button></a>
+    <a href="mailto:${esc(x.email||'')}?subject=${encodeURIComponent('Bitte unterschreiben: '+doc.title)}&body=${encodeURIComponent('Hallo '+x.first_name+',\n\nbitte unterschreibe hier:\n'+l)}"><button>E-Mail</button></a></div>`}</div>`}).join('')}</div>
+  <div class="card"><h3>Audit-Trail</h3><table><tr><th>Zeit</th><th>Ereignis</th><th>Person / IP</th></tr>${events.map(v=>{const p=signers.find(x=>x.id===v.signer_id);
+   return `<tr><td>${fmt(v.created_at)}</td><td>${EVT[v.event]||esc(v.event)}</td><td>${p?name(p):esc(v.actor||'')} ${v.ip?'· '+esc(v.ip):''}</td></tr>`}).join('')}</table></div>
+  <div class="row noprint"><button class="pri" id="dl" ${anySigned?'':'disabled'}>Signiertes PDF + Audit-Trail laden</button><button id="dl0">Original laden</button><button class="bad" id="rm">Löschen</button></div>`;
+  JsBarcode('#bc',doc.code,{format:'CODE128',height:50,fontSize:12,margin:4});
+  $('#pr').onclick=()=>{const w=window.open('','_blank','width=420,height=300');w.document.write('<body style="font-family:sans-serif;text-align:center">'+$('#bc').outerHTML+'<div>'+esc(doc.title)+'</div><script>onload=()=>print()<\/script>');w.document.close()};
+  document.querySelectorAll('[data-copy]').forEach(b=>b.onclick=()=>{navigator.clipboard.writeText(b.dataset.copy);toast('Link kopiert')});
+  document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>window.open(b.dataset.open,'_blank'));
+  const full=async()=>(await sb.from('documents').select('pdf_b64,fields').eq('id',id).single()).data;
+  const save=(bytes,n)=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));a.download=n;a.click()};
+  $('#dl0').onclick=async()=>{const f=await full();save(b64ToBytes(f.pdf_b64),doc.code+'-original.pdf')};
+  $('#dl').onclick=async()=>{$('#dl').textContent='Erzeuge…';try{const f=await full();save(await buildSignedPdf({...doc,...f},signers,events),doc.code+'-signiert.pdf')}catch(err){alert('Fehler: '+err.message)}$('#dl').textContent='Signiertes PDF + Audit-Trail laden'};
+  $('#rm').onclick=async()=>{if(!confirm('Dokument samt Unterschriften und Audit-Trail endgültig löschen?'))return;await sb.from('documents').delete().eq('id',id);listView()};
+}
+
+/* ================= SIGNIERTES PDF + AUDIT ================= */
+async function buildSignedPdf(d,signers,events){
+  const {PDFDocument,StandardFonts,rgb}=PDFLib;
+  const pdf=await PDFDocument.load(b64ToBytes(d.pdf_b64));
+  const font=await pdf.embedFont(StandardFonts.Helvetica),bold=await pdf.embedFont(StandardFonts.HelveticaBold);
+  const cl=s=>String(s??'').replace(/[\u2013\u2014]/g,'-').replace(/[\u2018\u2019]/g,"'").replace(/[\u201C\u201D]/g,'"').replace(/[^\x20-\x7E\xA0-\xFF]/g,'?');
+  const pages=pdf.getPages();const sigImgs={};
+  for(const s of signers){if(s.status!=='signed')continue;
+    const img=s.signature_png?(sigImgs[s.id]=await pdf.embedPng(s.signature_png)):null;
+    for(const f of d.fields.filter(f=>f.signerId===s.id)){
+      const pg=pages[f.page-1];if(!pg)continue;const {width:W_,height:H_}=pg.getSize();
+      const x=f.x*W_,w=f.w*W_,h=f.h*H_,y=H_-f.y*H_-h,val=(s.field_values||{})[f.id];
+      if(f.type==='signature'&&img){const r=Math.min(w/img.width,h/img.height),iw=img.width*r,ih=img.height*r;pg.drawImage(img,{x:x+(w-iw)/2,y:y+(h-ih)/2,width:iw,height:ih})}
+      else if(f.type==='checkbox'){pg.drawRectangle({x,y,width:w,height:h,borderColor:rgb(0,0,0),borderWidth:.8});if(val==='true')pg.drawText('X',{x:x+w*.2,y:y+h*.18,size:h*.75,font:bold})}
+      else if(f.type==='text'||f.type==='date'){const size=Math.max(6,Math.min(11,h*.62));pg.drawText(cl(val),{x:x+2,y:y+(h-size)/2+size*.15,size,font,color:rgb(0,0,.4)})}
+    }}
+  pages.forEach((pg,i)=>pg.drawText(cl(`Dokument-ID ${d.code} · Seite ${i+1}/${pages.length} · Audit-Trail am Ende`),{x:20,y:10,size:6.5,font,color:rgb(.4,.4,.4)}));
+  /* ===== Audit-Trail nach Verordnung (EU) Nr. 910/2014 (eIDAS) ===== */
+  const mono=await pdf.embedFont(StandardFonts.Courier);
+  const NAVY=rgb(.078,.129,.239),BLUE=rgb(.114,.306,.847),GREY=rgb(.4,.44,.5),LIGHT=rgb(.957,.965,.976),LINEC=rgb(.89,.906,.925),GREEN=rgb(.082,.502,.239),AMBER=rgb(.706,.325,.035),WHITE=rgb(1,1,1);
+  const PW=595.28,PH=841.89,M=42,CW=PW-2*M;
+  const sigHash={};
+  for(const s of signers){if(s.signature_png)sigHash[s.id]=await sha256(b64ToBytes(s.signature_png.split(',')[1]))}
+  const aps=[];let ap,y;
+  const tw=(t,size,f)=>f.widthOfTextAtSize(t,size);
+  const wrap=(t,size,f,maxW)=>{const out=[];
+    for(const pr of cl(t).split('\n')){let cur='';
+      for(const w of pr.split(' ')){let word=w;
+        while(tw(word,size,f)>maxW){let k=word.length;while(k>1&&tw(word.slice(0,k),size,f)>maxW)k--;if(cur){out.push(cur);cur=''}out.push(word.slice(0,k));word=word.slice(k)}
+        const test=cur?cur+' '+word:word;
+        if(tw(test,size,f)>maxW&&cur){out.push(cur);cur=word}else cur=test}
+      out.push(cur)}
+    return out};
+  const txt=(t,x,yy,size=9,f=font,color=NAVY)=>ap.drawText(cl(t),{x,y:yy,size,font:f,color});
+  const txtR=(t,xr,yy,size=9,f=font,color=NAVY)=>ap.drawText(cl(t),{x:xr-tw(cl(t),size,f),y:yy,size,font:f,color});
+  const newPage=first=>{ap=pdf.addPage([PW,PH]);aps.push(ap);
+    if(first){
+      ap.drawRectangle({x:0,y:PH-104,width:PW,height:104,color:NAVY});
+      ap.drawRectangle({x:0,y:PH-108,width:PW,height:4,color:BLUE});
+      txt('AUDIT-TRAIL',M,PH-38,9,bold,rgb(.62,.74,1));
+      txt('Zur elektronischen Signatur',M,PH-66,22,bold,WHITE);
+      txt('gemäß Verordnung (EU) Nr. 910/2014 (eIDAS-Verordnung)',M,PH-86,9.5,font,rgb(.82,.87,.96));
+      txtR(d.code,PW-M,PH-38,9,mono,WHITE);
+      y=PH-134;
+    }else{
+      ap.drawRectangle({x:0,y:PH-30,width:PW,height:30,color:NAVY});
+      txt('Audit-Trail · '+d.title,M,PH-19,8.5,bold,WHITE);txtR(d.code,PW-M,PH-19,8,mono,WHITE);
+      y=PH-58;
+    }};
+  const ensure=h=>{if(y-h<56)newPage(false)};
+  const section=(n,title)=>{ensure(60);y-=10;ap.drawRectangle({x:M,y:y-4,width:3,height:16,color:BLUE});txt(n+'  '+title,M+10,y,12,bold);y-=10;ap.drawLine({start:{x:M,y},end:{x:PW-M,y},thickness:.6,color:LINEC});y-=16};
+  const para=(t,size=8.8,color=NAVY,f=font)=>{for(const l of wrap(t,size,f,CW)){ensure(size+6);txt(l,M,y,size,f,color);y-=size+3.6}y-=4};
+  const sub=t=>{ensure(30);txt(t,M,y,9,bold,BLUE);y-=13};
+  const kv=(rows,labelW=140)=>{
+    rows.forEach(([k,v,f],i)=>{
+      const vf=f||font,vs=f===mono?7.6:9,pad=5;
+      const ls=wrap(v||'–',vs,vf,CW-labelW-16);const h=ls.length*(vs+3)+7;
+      ensure(h);
+      if(i%2===0)ap.drawRectangle({x:M,y:y-h,width:CW,height:h,color:LIGHT});
+      txt(k,M+8,y-pad-8.3*.8,8.3,font,GREY);
+      ls.forEach((l,j)=>txt(l,M+labelW,y-pad-vs*.8-j*(vs+3),vs,vf));
+      y-=h});
+    y-=8};
+
+  newPage(true);
+  const nSign=signers.filter(s=>s.role!=='copy'),nDone=nSign.filter(s=>s.status==='signed').length;
+  const boxes=[['STATUS',STATUS[d.status],d.status==='signed'?GREEN:AMBER],['UNTERSCHRIFTEN',`${nDone} von ${nSign.length}`,NAVY],['ABGESCHLOSSEN',d.completed_at?fmt(d.completed_at):'noch offen',NAVY]];
+  const bw=(CW-20)/3;
+  boxes.forEach(([k,v,c],i)=>{const x=M+i*(bw+10);
+    ap.drawRectangle({x,y:y-48,width:bw,height:48,color:LIGHT,borderColor:LINEC,borderWidth:.6});
+    ap.drawRectangle({x,y:y-48,width:3,height:48,color:c});
+    txt(k,x+12,y-16,7.5,bold,GREY);txt(v,x+12,y-35,i===2?9.5:12,bold,c)});
+  y-=58;
+
+  section('1','Dokument und Integrität');
+  kv([['Titel',d.title],['Dokument-ID',d.code],['Seiten (Original)',String(d.page_count||pages.length)],
+      ['SHA-256 des Originals',d.sha256,mono],['Erstellt am',fmt(d.created_at)+' (Europe/Berlin)'],['Abgeschlossen am',d.completed_at?fmt(d.completed_at)+' (Europe/Berlin)':'noch nicht abgeschlossen']]);
+
+  section('2','Unterzeichner und Signaturvorgang');
+  nSign.forEach((s,idx)=>{
+    const done=s.status==='signed',col=done?GREEN:AMBER;
+    ensure(46+34);
+    ap.drawRectangle({x:M,y:y-46,width:CW,height:46,color:WHITE,borderColor:LINEC,borderWidth:.8});
+    ap.drawRectangle({x:M,y:y-46,width:4,height:46,color:col});
+    txt(`${idx+1}. ${s.first_name} ${s.last_name}`,M+14,y-20,11.5,bold);
+    const label=done?'SIGNIERT':'AUSSTEHEND',lw=tw(label,7.5,bold)+14;
+    ap.drawRectangle({x:M+14,y:y-40,width:lw,height:13,color:done?rgb(.86,.99,.91):rgb(1,.95,.78)});
+    txt(label,M+21,y-36,7.5,bold,col);
+    const im=sigImgs[s.id];
+    if(im){const r=Math.min(110/im.width,38/im.height);ap.drawImage(im,{x:PW-M-10-im.width*r,y:y-42,width:im.width*r,height:im.height*r})}
+    y-=46;
+    kv([['Rolle',ROLE[s.role]],['E-Mail',s.email||'–'],['Telefon',s.phone||'–'],
+        ['Zeitpunkt der Unterzeichnung',done?fmt(s.signed_at)+' (Europe/Berlin)':'noch nicht unterzeichnet'],
+        ['IP-Adresse',s.signed_ip||'–'],['Endgerät / Browser',s.signed_ua||'–'],
+        ['Einwilligung',done&&s.consent?'Zur elektronischen Unterzeichnung ausdrücklich erteilt':'–'],
+        ['Zuordnung der Unterschrift','Personalisierter, nicht erratbarer Signierlink (Token)'],
+        ['SHA-256 der Unterschrift',sigHash[s.id]||'–',mono]],165);
+  });
+  const copies=signers.filter(s=>s.role==='copy');
+  if(copies.length)para('Kopie-Empfänger (ohne Signaturvorgang): '+copies.map(c=>c.first_name+' '+c.last_name+(c.email?' <'+c.email+'>':'')).join(', '),8.5,GREY);
+
+  section('3','Ereignisprotokoll (chronologisch)');
+  const cols=[['Zeitpunkt',112],['Ereignis',140],['Beteiligter',130],['IP-Adresse',CW-382]];
+  const head=()=>{ensure(40);ap.drawRectangle({x:M,y:y-18,width:CW,height:18,color:NAVY});let x=M+6;cols.forEach(([n,w])=>{txt(n,x,y-12.5,8,bold,WHITE);x+=w});y-=18};
+  head();
+  events.forEach((v,i)=>{
+    const p=signers.find(x=>x.id===v.signer_id);const who=p?p.first_name+' '+p.last_name:(v.actor||'System');
+    const cells=[fmt(v.created_at),EVT[v.event]||v.event,who,v.ip||'–'];
+    const ls=cells.map((c,k)=>wrap(c,8.2,font,cols[k][1]-8));
+    const n=Math.max(...ls.map(a=>a.length)),h=n*11.2+7;
+    if(y-h<56){newPage(false);head()}
+    if(i%2===1)ap.drawRectangle({x:M,y:y-h,width:CW,height:h,color:LIGHT});
+    let x=M+6;ls.forEach((a,k)=>{a.forEach((l,j)=>txt(l,x,y-5-8.2*.8-j*11.2,8.2,font));x+=cols[k][1]});
+    y-=h});
+  y-=8;
+
+  section('4','Integrität und Nachprüfbarkeit');
+  para('Der SHA-256-Hashwert in Abschnitt 1 identifiziert das ursprünglich hochgeladene Dokument eindeutig: Wird das unveränderte Original erneut gehasht, muss derselbe Wert entstehen. Der Hashwert der Unterschrift in Abschnitt 2 belegt, dass die im System gespeicherte Unterschriftsdatei unverändert ist. Die Ereignisse wurden serverseitig mit Zeitstempel der Datenbank protokolliert.');
+
+  section('5','Einordnung nach Verordnung (EU) Nr. 910/2014 (eIDAS)');
+  sub('Art der Signatur');
+  para('Einfache elektronische Signatur im Sinne von Art. 3 Nr. 10 eIDAS-VO: Daten in elektronischer Form, die anderen elektronischen Daten beigefügt oder logisch mit ihnen verknüpft werden und die der Unterzeichner zum Unterzeichnen verwendet. Die Unterzeichner haben ihre handschriftlich gezeichnete Unterschrift dem Dokument zugeordnet und der elektronischen Unterzeichnung zugestimmt.');
+  sub('Rechtswirkung (Art. 25 Abs. 1 eIDAS)');
+  para('Einer elektronischen Signatur darf die Rechtswirkung und die Zulässigkeit als Beweismittel in Gerichtsverfahren nicht allein deshalb abgesprochen werden, weil sie in elektronischer Form vorliegt oder die Anforderungen an qualifizierte elektronische Signaturen nicht erfüllt. Der Beweiswert wird im Einzelfall vom Gericht gewürdigt.');
+  sub('Abgrenzung');
+  para('Dieses Verfahren stellt weder eine fortgeschrittene elektronische Signatur (Art. 3 Nr. 11, Art. 26) noch eine qualifizierte elektronische Signatur (Art. 3 Nr. 12) dar. Die Gleichstellung mit der handschriftlichen Unterschrift nach Art. 25 Abs. 2 gilt daher nicht; gesetzliche Schriftformerfordernisse werden dadurch nicht ersetzt. Eine Identitätsprüfung im Sinne von Art. 24 Abs. 1 hat nicht stattgefunden; die Zuordnung beruht auf dem personalisierten Signierlink. Zeitangaben sind keine qualifizierten elektronischen Zeitstempel (Art. 3 Nr. 34). Dieses Dokument ist nicht durch ein elektronisches Siegel geschützt.',8.8,NAVY);
+
+  aps.forEach((p,i)=>{
+    p.drawLine({start:{x:M,y:38},end:{x:PW-M,y:38},thickness:.5,color:LINEC});
+    p.drawText(cl(`Dokument-ID ${d.code} · Audit-Trail nach Verordnung (EU) Nr. 910/2014`),{x:M,y:26,size:7,font,color:GREY});
+    const t=`Seite ${i+1} von ${aps.length}`;p.drawText(t,{x:PW-M-tw(t,7,font),y:26,size:7,font,color:GREY});
+    const c=cl('Erstellt '+fmt(new Date()));p.drawText(c,{x:PW/2-tw(c,7,font)/2+40,y:26,size:7,font,color:GREY});
+  });
+  return await pdf.save();
+}
+
+/* ================= UNTERZEICHNER-ANSICHT ================= */
+async function signerView(token){
+  app.innerHTML='<div class="wrap"><p class="mut">Lade Dokument…</p></div>';
+  const {data,error}=await sb.rpc('get_signing_session',{p_token:token});
+  if(error||!data||data.error){app.innerHTML=`<div class="wrap"><div class="card"><h2>Nicht verfügbar</h2><p>${esc(error?error.message:data?.error||'Fehler')}</p></div></div>`;return}
+  const S={sig:data.signature||null,vals:{...(data.signed_values||{})},done:data.signer.status==='signed'};
+  app.innerHTML=`<div class="hdr"><b>${esc(data.title)}</b><span class="mut">${esc(data.signer.first_name+' '+data.signer.last_name)}</span></div>
+  <div class="wrap"><div id="msg"></div><div id="pv"></div></div>
+  <div class="bar" id="bar"></div>`;
+  if(S.done)$('#msg').innerHTML='<div class="card"><b>✔ Du hast dieses Dokument bereits unterzeichnet</b> ('+fmt(data.signer.signed_at)+').</div>';
+  else $('#msg').innerHTML='<div class="card mut">Bitte Dokument lesen, gelb markierte Felder ausfüllen und unten verbindlich unterschreiben.</div>';
+  const pages=await renderPdf($('#pv'),b64ToBytes(data.pdf_b64));
+  const els=[];
+  data.fields.forEach(f=>{const p=pages[f.page-1];if(!p)return;
+    const box=(tag='div')=>{const e=document.createElement(tag);e.style.cssText=`position:absolute;left:${f.x*100}%;top:${f.y*100}%;width:${f.w*100}%;height:${f.h*100}%`;p.ov.appendChild(e);return e};
+    if(f.type==='signature'){const e=box();e.className='sigbox';const r=()=>{e.innerHTML=S.sig?`<img src="${S.sig}">`:'✍ Hier unterschreiben'};r();els.push(r);
+      if(!S.done)e.onclick=()=>sigPad(u=>{S.sig=u;els.forEach(x=>x())})}
+    else if(f.type==='date'){const e=box();e.className='sigbox';e.style.cursor='default';e.style.borderStyle='solid';e.textContent=S.vals[f.id]||'Datum (automatisch)'}
+    else if(f.type==='checkbox'){const e=box('input');e.type='checkbox';e.checked=S.vals[f.id]==='true';e.disabled=S.done;e.onchange=()=>S.vals[f.id]=String(e.checked)}
+    else{const e=box('input');e.className='ovin';e.placeholder=f.label||'';e.value=f.value||S.vals[f.id]||'';e.readOnly=S.done||!!f.value;e.oninput=()=>S.vals[f.id]=e.value;e.dataset.fs=f.h;}
+  });
+  const fit=()=>document.querySelectorAll('.ovin').forEach(e=>{const h=e.parentElement.getBoundingClientRect().height*parseFloat(e.dataset.fs);e.style.fontSize=Math.max(10,h*.55)+'px'});
+  fit();addEventListener('resize',fit);
+  if(S.done){$('#bar').remove();return}
+  $('#bar').innerHTML=`<label style="margin:0;color:var(--ink)"><input type="checkbox" id="cs"> Ich habe das Dokument gelesen und willige in die elektronische Unterschrift ein. Zeitpunkt, IP-Adresse und Gerätedaten werden im Audit-Trail gespeichert.</label>
+   <div class="err" id="e"></div><button class="pri" id="go" style="width:100%;margin-top:6px">Verbindlich unterschreiben</button>`;
+  $('#go').onclick=async()=>{
+    for(const f of data.fields){if(!f.required||f.type==='date')continue;
+      if(f.type==='signature'&&!S.sig){$('#e').textContent='Bitte unterschreiben.';return}
+      if(f.type!=='signature'&&!f.value&&(!S.vals[f.id]||S.vals[f.id]==='false')){$('#e').textContent='Pflichtfeld fehlt: '+(f.label||'Feld');return}}
+    if(!$('#cs').checked){$('#e').textContent='Bitte Einwilligung bestätigen.';return}
+    $('#go').disabled=true;
+    const {data:r,error:er}=await sb.rpc('submit_signing',{p_token:token,p_values:S.vals,p_signature:S.sig,p_consent:true,p_ua:navigator.userAgent});
+    if(er||!r||r.error){$('#e').textContent=er?er.message:r.error;$('#go').disabled=false;return}
+    app.innerHTML=`<div class="wrap" style="padding-top:12vh"><div class="card" style="text-align:center"><h2>✔ Erfolgreich unterzeichnet</h2><p>Danke! Deine Unterschrift wurde gespeichert. Du kannst dieses Fenster schließen.</p></div></div>`;
+  };
+}
+
+function sigPad(cb){
+  const m=document.createElement('div');m.className='modal';
+  m.innerHTML=`<div class="box"><h3>Unterschrift</h3><canvas class="pad" width="900" height="300"></canvas>
+  <div class="row" style="margin-top:8px"><button id="c">Löschen</button><button id="x">Abbrechen</button><button class="pri" id="ok">Übernehmen</button></div></div>`;
+  document.body.appendChild(m);
+  const cv=$('canvas',m),ctx=cv.getContext('2d');ctx.lineWidth=5;ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='#0b1f6b';
+  let draw=false,empty=true;
+  const pt=e=>{const r=cv.getBoundingClientRect();return [(e.clientX-r.left)*cv.width/r.width,(e.clientY-r.top)*cv.height/r.height]};
+  cv.onpointerdown=e=>{draw=true;cv.setPointerCapture(e.pointerId);const [x,y]=pt(e);ctx.beginPath();ctx.moveTo(x,y)};
+  cv.onpointermove=e=>{if(!draw)return;const [x,y]=pt(e);ctx.lineTo(x,y);ctx.stroke();empty=false};
+  cv.onpointerup=()=>draw=false;
+  $('#c',m).onclick=()=>{ctx.clearRect(0,0,cv.width,cv.height);empty=true};
+  $('#x',m).onclick=()=>m.remove();
+  $('#ok',m).onclick=()=>{if(empty)return;cb(cv.toDataURL('image/png'));m.remove()};
+}
+</script>
+</body>
+</html>
